@@ -54,7 +54,13 @@ my $ok = eval {
 # Never unmount a replacement or remove a mounted tree.
 my $live = mounted_line();
 if ($ok && $live && $live eq $attached) {
-    $ok = 0 unless system('/sbin/umount','-f',$mount) == 0;
+    my $detached = system('/sbin/umount','-f',$mount) == 0;
+    # Disk Arbitration can detach UUID-backed FSKit volumes when unmount(2)
+    # rejects an ordinary user's request. Never retry against a replacement.
+    if (!$detached && $attached =~ m{^macfuse://} && mounted_line() eq $attached) {
+        $detached = system('/usr/sbin/diskutil','unmount',$mount) == 0;
+    }
+    $ok = 0 unless $detached;
 }
 for my $pid (@children) {
     if (waitpid($pid,WNOHANG)==0) {kill 'TERM',$pid}

@@ -145,7 +145,12 @@ func (s *Server) macOSMountCleanup(ctx context.Context, guestDir string) (func()
 		!strings.Contains(options, "fskit") || !strings.Contains(options, "mounted by "+s.macosGuest.User+")") {
 		return nil, errors.New("无法核对本次挂载的 macOS 卷标识")
 	}
-	detach := "if test \"$(" + query + ")\" = " + shellescape.Quote(line) + "; then /sbin/umount -f " + shellescape.Quote(guestDir) + "; fi"
+	// Retry through Disk Arbitration only while the original UUID-backed
+	// FSKit mount is still present. Never detach a replacement volume.
+	identityMatches := "test \"$(" + query + ")\" = " + shellescape.Quote(line)
+	folder := shellescape.Quote(guestDir)
+	detach := "if " + identityMatches + "; then if ! /sbin/umount -f " + folder +
+		" && " + identityMatches + "; then /usr/sbin/diskutil unmount " + folder + "; fi; fi"
 	return func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
