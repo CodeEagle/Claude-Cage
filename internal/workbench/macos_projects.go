@@ -149,7 +149,12 @@ func (s *Server) macOSMountCleanup(ctx context.Context, guestDir string) (func()
 		!strings.Contains(options, "fskit") || !strings.Contains(options, "mounted by "+s.macosGuest.User+")") {
 		return nil, errors.New("无法核对本次挂载的 macOS 卷标识")
 	}
-	detach := "if test \"$(" + query + ")\" = " + shellescape.Quote(line) + "; then /sbin/umount -f " + shellescape.Quote(guestDir) + "; fi"
+	// Retry UUID-backed FSKit volumes through Disk Arbitration only if the
+	// original mount is still present. Keep legacy device cleanup below separate.
+	identityMatches := "test \"$(" + query + ")\" = " + shellescape.Quote(line)
+	folder := shellescape.Quote(guestDir)
+	detach := "if " + identityMatches + "; then if ! /sbin/umount -f " + folder +
+		" && " + identityMatches + "; then /usr/sbin/diskutil unmount " + folder + "; fi; fi"
 	if legacy {
 		// A BSD name can be reused. Pin the kernel media object, which remains
 		// queryable after SFTP exits. diskutil may block on a disconnected FSKit

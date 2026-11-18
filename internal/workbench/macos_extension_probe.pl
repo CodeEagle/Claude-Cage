@@ -75,7 +75,15 @@ my $ok = eval {
 # Never unmount a replacement or remove a mounted tree.
 my $live = mounted_line();
 if ($live && $live eq $attached) {
-    $ok = 0 unless system('/sbin/umount','-f',$mount) == 0;
+    my $detached = system('/sbin/umount','-f',$mount) == 0;
+    # Some macOS releases reject unmount(2) for an ordinary user's FSKit
+    # volume. Disk Arbitration can detach UUID-backed volumes on their behalf.
+    # Recheck identity before retrying; legacy disk devices keep their existing
+    # cleanup path because diskutil can block on a disconnected FSKit volume.
+    if (!$detached && $attached =~ m{^macfuse://} && mounted_line() eq $attached) {
+        $detached = system('/usr/sbin/diskutil','unmount',$mount) == 0;
+    }
+    $ok = 0 unless $detached;
 }
 for my $pid (@children) {
     if (waitpid($pid,WNOHANG)==0) {kill 'TERM',$pid}
